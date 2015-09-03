@@ -4,7 +4,7 @@
 //
 // For details of how this tool works and context for why it was built,
 // please refer to the following blog post:
-// 
+//
 //   http://blog.labix.org/2013/06/15/in-flight-deb-packages-of-go
 //
 package main
@@ -14,13 +14,14 @@ import (
 	"fmt"
 	"go/build"
 	"io/ioutil"
-	"gopkg.in/xmlpath.v1"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"sort"
 	"strings"
+
+	"gopkg.in/xmlpath.v1"
 )
 
 var usage = `Usage: godeb <command> [<options> ...]
@@ -30,6 +31,7 @@ Available commands:
     list
     install [<version>]
     download [<version>]
+    build file
     remove
 `
 
@@ -67,12 +69,19 @@ func run() error {
 			return fmt.Errorf("too many arguments to %s command", command)
 		}
 		return actionCommand(version, command == "install")
+	case "build":
+		if len(os.Args) != 5 {
+			return fmt.Errorf("not enaugh arguments to %s command", command)
+		}
+		src := os.Args[2]
+		version := os.Args[3]
+		arch := os.Args[4]
+		return buildCommand(src, version, arch)
 	case "remove":
 		return removeCommand()
 	default:
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}
-	return nil
 }
 
 func listCommand() error {
@@ -154,7 +163,7 @@ func actionCommand(version string, install bool) error {
 	if err := createDeb(version, resp.Body, deb); err != nil {
 		return err
 	}
-	if err := os.Rename(debName + ".inprogress", debName); err != nil {
+	if err := os.Rename(debName+".inprogress", debName); err != nil {
 		return err
 	}
 	fmt.Println("package", debName, "ready")
@@ -171,6 +180,32 @@ func actionCommand(version string, install bool) error {
 			return fmt.Errorf("while installing go package: %v", err)
 		}
 	}
+	return nil
+}
+
+func buildCommand(src, version, arch string) error {
+	fmt.Println("processing", src)
+	resp, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %v", src, err)
+	}
+	defer resp.Close()
+
+	debName := fmt.Sprintf("go_%s_%s.deb", debVersion(version), debArch())
+	deb, err := os.Create(debName + ".inprogress")
+	if err != nil {
+		return fmt.Errorf("cannot create deb: %v", err)
+	}
+	defer deb.Close()
+
+	if err := createDeb(version, resp, deb); err != nil {
+		return err
+	}
+	if err := os.Rename(debName+".inprogress", debName); err != nil {
+		return err
+	}
+	fmt.Println("package", debName, "ready")
+
 	return nil
 }
 
@@ -191,7 +226,7 @@ var tarballSources = []tarballSource{
 func tarballs() ([]*Tarball, error) {
 	type result struct {
 		tarballs []*Tarball
-		err error
+		err      error
 	}
 	results := make(chan result)
 	for _, source := range tarballSources {
@@ -264,7 +299,7 @@ func parseURL(url string) (tb *Tarball, ok bool) {
 	if !strings.HasSuffix(s, suffix) {
 		return nil, false
 	}
-	return &Tarball{url, s[2:len(s)-len(suffix)]}, true
+	return &Tarball{url, s[2 : len(s)-len(suffix)]}, true
 }
 
 func clearScripts(data []byte) {
